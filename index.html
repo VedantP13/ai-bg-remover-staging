@@ -1,72 +1,127 @@
-<!DOCTYPE html><html lang="en"> <head> <!-- Meta --> <meta charset="UTF-8" /> <meta name="viewport" content="width=device-width,initial-scale=1.0" /> <title>AI Background Remover (Staging)</title> <!-- Styles --> <link rel="stylesheet" href="style.css" /> <link rel="preconnect" href="https://fonts.googleapis.com" /> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /> <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" /> <!-- Primary model (IMG.LY) --> <script src="https://unpkg.com/@imgly/background-removal/dist/browser/global.js"></script> <!-- Optional fallback (MediaPipe) --> <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.13/vision_bundle.mjs" type="module"></script></head> <body> <header class="app-header"> <div class="header-inner"> <div> <h1>AI Background Remover</h1> <p>Accurate subject separation with clear Before/After preview</p> </div> <div id="status-badges" class="badges"> <span class="badge" id="badge-model">Model: Loading…</span> <span class="badge" id="badge-fallback" hidden>Fallback: Ready</span> </div> </div> </header> <main class="app-main"> <aside class="side-panel"> <div class="panel-section"> <h3>1. Upload</h3> <div id="upload-area" class="upload-area"> <input id="file-input" type="file" accept="image/*" hidden /> <button id="btn-choose" class="btn btn-primary">Choose Image</button> <p class="help">or drag & drop here</p> <p id="file-meta" class="meta"></p> </div> </div>
-    <div class="panel-section">
-    <h3>2. AI Removal</h3>
-    <button id="btn-ai" class="btn btn-accent" disabled>Remove Background (AI)</button>
-    <div id="ai-progress" class="progress">
-      <div id="ai-progress-bar" class="progress-bar" style="width:0%"></div>
-    </div>
-    <p id="ai-status" class="status">Model preparing…</p>
-  </div>
-
-  <div class="panel-section">
-    <h3>3. Refine</h3>
-    <div class="tool-row">
-      <button id="tool-keep" class="btn btn-tool active">Keep</button>
-      <button id="tool-remove" class="btn btn-tool">Remove</button>
-    </div>
-    <label class="slider">
-      <span>Brush size</span>
-      <input id="brush-size" type="range" min="5" max="60" value="24" />
-      <span id="brush-size-val">24</span>
-    </label>
-    <label class="slider">
-      <span>Feather</span>
-      <input id="feather" type="range" min="0" max="2" step="0.5" value="0" />
-      <span id="feather-val">0</span>
-    </label>
-    <div class="tool-row">
-      <button id="undo" class="btn btn-secondary">Undo</button>
-      <button id="redo" class="btn btn-secondary">Redo</button>
-    </div>
-  </div>
-
-  <div class="panel-section">
-    <h3>4. Preview & Export</h3>
-    <div class="tool-row">
-      <button id="toggle-matte" class="btn btn-secondary">Edge Inspect</button>
-      <button id="download" class="btn btn-primary">Download PNG</button>
-    </div>
-    <p class="meta">Transparent background preserved</p>
-  </div>
-
-  <div class="panel-section">
-    <h3>Debug</h3>
-    <div class="debug">
-      <div>Load time: <span id="dbg-load">—</span>ms</div>
-      <div>Inference: <span id="dbg-infer">—</span>ms</div>
-      <div>Fallback used: <span id="dbg-fb">No</span></div>
-    </div>
-  </div>
-</aside>
-
-<section class="preview">
-  <div class="split">
-    <div class="pane">
-      <div class="pane-title">Original</div>
-      <div class="canvas-wrap">
-        <canvas id="canvas-original"></canvas>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>AI Background Remover (Staging)</title>
+  
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  
+  <!-- Primary model (IMG.LY) -->
+  <script src="https://unpkg.com/@imgly/background-removal/dist/browser/global.js"></script>
+  
+  <!-- Optional fallback (MediaPipe) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.13/vision_bundle.mjs" type="module"></script>
+  
+  <!-- Favicon to silence 404 -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><text y=%2214%22 font-size=%2214%22>🖼️</text></svg>">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div>
+        <h1>AI Background Remover</h1>
+        <p>Accurate subject separation with clear Before/After preview</p>
+      </div>
+      <div id="status-badges" class="badges">
+        <span class="badge" id="badge-model">Model: Loading…</span>
+        <span class="badge" id="badge-fallback" hidden>Fallback: Ready</span>
       </div>
     </div>
-    <div class="divider" id="divider"></div>
-    <div class="pane">
-      <div class="pane-title">Result</div>
-      <div class="canvas-wrap checkerboard" id="result-wrap">
-        <canvas id="canvas-result"></canvas>
-        <canvas id="canvas-matte" class="overlay" hidden></canvas>
-        <canvas id="canvas-brush" class="overlay"></canvas>
-      </div>
-    </div>
-  </div>
-</section>
+  </header>
 
-</main> <footer class="app-footer"> <div class="footer-inner"> <span>Staging build - All processing is client-side</span> </div> </footer> <script src="app.js"></script> </body> </html>
+  <main class="app-main">
+    <aside class="side-panel">
+      <div class="panel-section">
+        <h3>1. Upload</h3>
+        <div id="upload-area" class="upload-area">
+          <input id="file-input" type="file" accept="image/*" hidden />
+          <button id="btn-choose" class="btn btn-primary">Choose Image</button>
+          <p class="help">or drag & drop here</p>
+          <p id="file-meta" class="meta"></p>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h3>2. AI Removal</h3>
+        <button id="btn-ai" class="btn btn-accent" disabled>Remove Background (AI)</button>
+        <div id="ai-progress" class="progress">
+          <div id="ai-progress-bar" class="progress-bar" style="width:0%"></div>
+        </div>
+        <p id="ai-status" class="status">Model preparing…</p>
+      </div>
+
+      <div class="panel-section">
+        <h3>3. Refine</h3>
+        <div class="tool-row">
+          <button id="tool-keep" class="btn btn-tool active">Keep</button>
+          <button id="tool-remove" class="btn btn-tool">Remove</button>
+        </div>
+        <label class="slider">
+          <span>Brush size</span>
+          <input id="brush-size" type="range" min="5" max="60" value="24" />
+          <span id="brush-size-val">24</span>
+        </label>
+        <label class="slider">
+          <span>Feather</span>
+          <input id="feather" type="range" min="0" max="2" step="0.5" value="0" />
+          <span id="feather-val">0</span>
+        </label>
+        <div class="tool-row">
+          <button id="undo" class="btn btn-secondary">Undo</button>
+          <button id="redo" class="btn btn-secondary">Redo</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h3>4. Preview & Export</h3>
+        <div class="tool-row">
+          <button id="toggle-matte" class="btn btn-secondary">Edge Inspect</button>
+          <button id="download" class="btn btn-primary">Download PNG</button>
+        </div>
+        <p class="meta">Transparent background preserved</p>
+      </div>
+
+      <div class="panel-section">
+        <h3>Debug</h3>
+        <div class="debug">
+          <div>Load time: <span id="dbg-load">—</span>ms</div>
+          <div>Inference: <span id="dbg-infer">—</span>ms</div>
+          <div>Fallback used: <span id="dbg-fb">No</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="preview">
+      <div class="split">
+        <div class="pane">
+          <div class="pane-title">Original</div>
+          <div class="canvas-wrap">
+            <canvas id="canvas-original"></canvas>
+          </div>
+        </div>
+        <div class="divider" id="divider"></div>
+        <div class="pane">
+          <div class="pane-title">Result</div>
+          <div class="canvas-wrap checkerboard" id="result-wrap">
+            <canvas id="canvas-result"></canvas>
+            <canvas id="canvas-matte" class="overlay" hidden></canvas>
+            <canvas id="canvas-brush" class="overlay"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <div class="footer-inner">
+      <span>Staging build • All processing is client-side</span>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
