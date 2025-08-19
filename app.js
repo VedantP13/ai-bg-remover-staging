@@ -199,22 +199,41 @@
     rebuildFinalMask();
   }
 
-  function loadImage(file) {
-    return new Promise(function(resolve, reject){
-      try {
-        if (!file || typeof file !== 'object' || !('type' in file)) {
-          return reject(new Error('Invalid file object'));
-        }
-        var url = URL.createObjectURL(file);
-        var img = new Image();
-        img.onload = function(){ resolve(img); URL.revokeObjectURL(url); };
-        img.onerror = function(e){ reject(e); URL.revokeObjectURL(url); };
-        img.src = url;
-      } catch (e) {
-        reject(e);
+function loadImage(file) {
+  return new Promise(function(resolve, reject) {
+    try {
+      // Validate file type
+      if (!file) {
+        return reject(new Error('No file provided'));
       }
-    });
-  }
+      if (!file.type) {
+        return reject(new Error('File has no type property'));
+      }
+      if (!file.type.startsWith('image/')) {
+        return reject(new Error('Unsupported file type: ' + file.type));
+      }
+
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      
+      img.onload = function() { 
+        URL.revokeObjectURL(url);
+        resolve(img); 
+      };
+      
+      img.onerror = function(e) { 
+        URL.revokeObjectURL(url);
+        reject(new Error('Failed to load image: ' + (e.message || 'Unknown error'))); 
+      };
+      
+      img.src = url;
+      
+    } catch (e) {
+      reject(new Error('createObjectURL failed: ' + e.message));
+    }
+  });
+}
+
 
   // Create an intelligent initial mask based on edge detection and center bias
   function createAutoMask(w, h) {
@@ -363,25 +382,43 @@
     });
   }
 
-  async function handleFile(file) {
-    try {
-      var img = await loadImage(file);
-      state.image = img;
-      state.refineKeep = null; state.refineRemove = null;
-      state.history = []; state.histIndex = -1;
-      state.aiMask = null; state.finalMask = null;
+async function handleFile(file) {
+  try {
+    console.log('File details:', {
+      name: file.name,
+      type: file.type,
+      size: file.size
+    });
+    
+    var img = await loadImage(file);
+    state.image = img;
+    state.refineKeep = null; state.refineRemove = null;
+    state.history = []; state.histIndex = -1;
+    state.aiMask = null; state.finalMask = null;
 
-      if ($.fileMeta) $.fileMeta.textContent = file.name + ' — ' + img.naturalWidth + '×' + img.naturalHeight;
-      fitCanvasToImage(img.naturalWidth, img.naturalHeight);
-      drawOriginal();
+    if ($.fileMeta) $.fileMeta.textContent = file.name + ' — ' + img.naturalWidth + '×' + img.naturalHeight;
+    fitCanvasToImage(img.naturalWidth, img.naturalHeight);
+    drawOriginal();
 
-      if ($.btnAuto) $.btnAuto.disabled = false;
-      if ($.autoStatus) $.autoStatus.textContent = 'Ready to create initial mask';
-    } catch (e) {
-      console.error('Failed to load image:', e);
-      if ($.autoStatus) $.autoStatus.textContent = 'Image load failed. Try another file.';
+    if ($.btnAuto) $.btnAuto.disabled = false;
+    if ($.autoStatus) $.autoStatus.textContent = 'Ready to create initial mask';
+    
+  } catch (e) {
+    console.error('Image load failed:', e);
+    var errorMsg = 'Failed to load image';
+    
+    if (e.message.includes('Unsupported file type')) {
+      errorMsg = 'Unsupported file type. Try JPG, PNG, or GIF.';
+    } else if (e.message.includes('createObjectURL')) {
+      errorMsg = 'Browser security restriction. Try a different image.';
+    } else if (e.message.includes('No file')) {
+      errorMsg = 'No file selected. Please choose an image.';
     }
+    
+    if ($.autoStatus) $.autoStatus.textContent = errorMsg;
   }
+}
+
 
   function init(){
     try {
