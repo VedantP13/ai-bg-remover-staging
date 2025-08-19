@@ -57,6 +57,8 @@
   var ctxM = $.canvasMatte.getContext('2d');
   var ctxB = $.canvasBrush.getContext('2d');
 
+  // ---------- Canvas and Rendering ----------
+
   function fitCanvasToImage(w, h) {
     var preview = document.querySelector('.preview');
     var split = document.querySelector('.split');
@@ -153,6 +155,8 @@
     composeResult();
   }
 
+  // ---------- Manual Refinement ----------
+
   function paintRefine(clientX, clientY) {
     var w = $.canvasRes.width, h = $.canvasRes.height;
     if (w === 0 || h === 0) return;
@@ -209,6 +213,8 @@
     rebuildFinalMask();
   }
 
+  // ---------- Image Loading ----------
+
   function loadImage(file) {
     return new Promise(function(resolve, reject){
       try {
@@ -235,28 +241,55 @@
     return mask;
   }
 
+  // ---------- AI Processing (Modern IMG.LY API) ----------
+
   async function runPrimaryAI(imageBitmap, onProgress) {
     if (!state.imglyRemover) throw new Error('Primary model not initialized');
     var t0 = performance.now();
-    if (typeof onProgress === 'function') onProgress(10, 'Loading model…');
+    if (typeof onProgress === 'function') onProgress(10, 'Initializing…');
 
-    if (typeof onProgress === 'function') onProgress(40, 'Analyzing…');
-    var resultCanvas = await state.imglyRemover.removeBackground(imageBitmap, {
-      progress: function(p){
-        var pct = Math.max(40, Math.min(70, Math.round(40 + p * 30)));
-        if (typeof onProgress === 'function') onProgress(pct, 'Analyzing…');
+    // Convert ImageBitmap to Image element for IMG.LY
+    var canvas = document.createElement('canvas');
+    canvas.width = imageBitmap.width;
+    canvas.height = imageBitmap.height;
+    var ctx = canvas.getContext('2d');
+    ctx.drawImage(imageBitmap, 0, 0);
+
+    if (typeof onProgress === 'function') onProgress(30, 'Analyzing…');
+
+    // Use modern IMG.LY API - returns blob
+    var config = {
+      debug: false,
+      progress: function(key, current, total) {
+        var percentage = Math.round((current / total) * 100);
+        var progress = Math.min(80, 30 + (percentage * 0.5));
+        if (typeof onProgress === 'function') onProgress(progress, 'Processing…');
       }
-    });
+    };
 
-    if (typeof onProgress === 'function') onProgress(75, 'Refining edges…');
+    var resultBlob = await state.imglyRemover(canvas, config);
+    
+    if (typeof onProgress === 'function') onProgress(85, 'Converting result…');
+
+    // Convert blob back to canvas to extract mask
+    var resultImg = new Image();
+    var blobUrl = URL.createObjectURL(resultBlob);
+    resultImg.src = blobUrl;
+
+    await new Promise(function(resolve, reject) {
+      resultImg.onload = resolve;
+      resultImg.onerror = reject;
+    });
 
     var w = $.canvasRes.width, h = $.canvasRes.height;
     var buf = document.createElement('canvas');
     buf.width = w; buf.height = h;
     var bctx = buf.getContext('2d');
-    bctx.drawImage(resultCanvas, 0, 0, w, h);
+    bctx.drawImage(resultImg, 0, 0, w, h);
     var img = bctx.getImageData(0, 0, w, h);
     var mask = alphaToFloat32(img);
+
+    URL.revokeObjectURL(blobUrl);
 
     var t1 = performance.now();
     state.timings.infer = Math.round(t1 - t0);
@@ -264,21 +297,21 @@
     var sum = 0;
     for (var i = 0; i < w * h; i++) sum += mask[i];
     var mean = sum / (w * h);
-    var confidence = mean > 0.01 ? 0.9 : 0.3;
+    var confidence = mean > 0.01 ? 0.95 : 0.3;
     return { mask: mask, confidence: confidence };
   }
 
   async function runFallback(imageBitmap) {
     if (!state.mpSegmenter) throw new Error('Fallback model not initialized');
-
+    
     var w = $.canvasRes.width, h = $.canvasRes.height;
     var off = document.createElement('canvas');
     off.width = w; off.height = h;
     off.getContext('2d').drawImage(imageBitmap, 0, 0);
 
     var result = await state.mpSegmenter.segment(off);
-
     var mask = new Float32Array(w * h);
+    
     if (result && result.confidenceMasks && result.confidenceMasks.length > 0) {
       var m = result.confidenceMasks[0];
       for (var i = 0; i < w * h; i++) mask[i] = m.data[i * 4] / 255;
@@ -290,6 +323,8 @@
     }
     return { mask: mask, confidence: 0.6 };
   }
+
+  // ---------- Main AI Flow ----------
 
   async function doAI() {
     if (!state.image) return;
@@ -314,33 +349,32 @@
         $.aiStatus.textContent = label || 'Processing…';
       });
     } catch (e) {
-      console.warn('Primary AI failed', e);
+      console.warn('Primary AI failed:', e);
       primaryFailed = true;
     }
 
-    if (!result || result.confidence < 0.55) {
+    if (!result || result.confidence < 0.4) {
       if (state.mpSegmenter) {
         try {
-          $.aiStatus.textContent = 'Primary low confidence. Using fallback…';
+          $.aiStatus.textContent = 'Primary failed. Using fallback…';
           state.usedFallback = true;
           $.badgeFallback.hidden = false;
           result = await runFallback(bitmap);
           $.dbgFb.textContent = 'Yes';
         } catch (e2) {
           console.error('Fallback failed:', e2);
-          $.aiStatus.textContent = primaryFailed
-            ? 'All AI paths failed. Retry or reload.'
-            : 'Fallback failed. Primary result was low-confidence.';
+          $.aiStatus.textContent = 'All AI methods failed. Try another image.';
           $.btnAI.disabled = false;
           return;
         }
       } else if (primaryFailed) {
-        $.aiStatus.textContent = 'Primary failed and fallback unavailable.';
+        $.aiStatus.textContent = 'AI processing failed. Check console for details.';
         $.btnAI.disabled = false;
         return;
       } else {
+        // Accept low-confidence result
         state.usedFallback = false;
-        $.dbgFb.textContent = 'No (fallback unavailable)';
+        $.dbgFb.textContent = 'No';
       }
     } else {
       state.usedFallback = false;
@@ -351,15 +385,18 @@
     rebuildFinalMask();
 
     $.aiBar.style.width = '100%';
-    $.aiStatus.textContent = state.usedFallback ? 'Fallback result ready' : 'AI result ready';
+    $.aiStatus.textContent = state.usedFallback ? 'Fallback complete' : 'AI processing complete';
     $.btnAI.disabled = false;
     $.dbgInfer.textContent = String(state.timings.infer);
   }
+
+  // ---------- Event Binding ----------
 
   function bindEvents() {
     if ($.btnChoose && $.fileInput) {
       $.btnChoose.addEventListener('click', function(){ $.fileInput.click(); });
     }
+    
     var upArea = document.getElementById('upload-area');
     if (upArea) {
       upArea.addEventListener('dragover', function(e){ e.preventDefault(); upArea.classList.add('drag'); });
@@ -371,6 +408,7 @@
         if (f) await handleFile(f);
       });
     }
+    
     if ($.fileInput) {
       $.fileInput.addEventListener('change', async function(e){
         var files = e.target && e.target.files;
@@ -383,16 +421,21 @@
 
     if ($.toolKeep) $.toolKeep.addEventListener('click', function(){
       state.tool = 'keep';
-      $.toolKeep.classList.add('active'); if ($.toolRemove) $.toolRemove.classList.remove('active');
+      $.toolKeep.classList.add('active');
+      if ($.toolRemove) $.toolRemove.classList.remove('active');
     });
+    
     if ($.toolRemove) $.toolRemove.addEventListener('click', function(){
       state.tool = 'remove';
-      $.toolRemove.classList.add('active'); if ($.toolKeep) $.toolKeep.classList.remove('active');
+      $.toolRemove.classList.add('active');
+      if ($.toolKeep) $.toolKeep.classList.remove('active');
     });
+    
     if ($.brushSize) $.brushSize.addEventListener('input', function(e){
       state.brushSize = Number(e.target.value);
       if ($.brushSizeVal) $.brushSizeVal.textContent = String(state.brushSize);
     });
+    
     if ($.feather) $.feather.addEventListener('input', function(e){
       state.feather = Number(e.target.value);
       if ($.featherVal) $.featherVal.textContent = String(state.feather);
@@ -408,6 +451,7 @@
         if (state.isDrawing) paintRefine(e.clientX, e.clientY);
       });
     }
+    
     window.addEventListener('pointerup', function(){
       state.isDrawing = false;
       ctxB.clearRect(0, 0, $.canvasBrush.width, $.canvasBrush.height);
@@ -416,6 +460,7 @@
     if ($.undo) $.undo.addEventListener('click', function(){
       if (state.histIndex > 0) { state.histIndex--; applyHistory(state.histIndex); }
     });
+    
     if ($.redo) $.redo.addEventListener('click', function(){
       if (state.histIndex < state.history.length - 1) { state.histIndex++; applyHistory(state.histIndex); }
     });
@@ -440,6 +485,8 @@
     });
   }
 
+  // ---------- File Handling ----------
+
   async function handleFile(file) {
     try {
       var img = await loadImage(file);
@@ -454,25 +501,34 @@
       drawOriginal();
 
       if ($.btnAI) $.btnAI.disabled = !state.modelReady;
-      if ($.aiStatus) $.aiStatus.textContent = state.modelReady ? 'Model ready' : 'Model preparing…';
+      if ($.aiStatus) $.aiStatus.textContent = state.modelReady ? 'Model ready' : 'Model loading…';
     } catch (e) {
       console.error('Failed to load image:', e);
       if ($.aiStatus) $.aiStatus.textContent = 'Image load failed. Try another file.';
     }
   }
 
+  // ---------- Model Preloading ----------
+
   async function preloadPrimaryImgly() {
     try {
-      if (!window.backgroundRemoval) throw new Error('IMG.LY global missing (window.backgroundRemoval undefined)');
-      var remover = await window.backgroundRemoval.createBackgroundRemoval({ debug: false });
-      var tiny = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(32, 32) : document.createElement('canvas');
-      tiny.width = 32; tiny.height = 32;
-      var tctx = tiny.getContext('2d'); tctx.fillStyle = '#000'; tctx.fillRect(0, 0, 32, 32);
-      await remover.removeBackground(tiny);
-      state.imglyRemover = remover;
+      // Wait for ES module to be available
+      for (var i = 0; i < 20; i++) {
+        if (window.imglyRemoveBackground) break;
+        await new Promise(function(resolve) { setTimeout(resolve, 250); });
+      }
+      
+      if (!window.imglyRemoveBackground) {
+        throw new Error('IMG.LY module failed to load after 5 seconds');
+      }
+      
+      state.imglyRemover = window.imglyRemoveBackground;
+      
     } catch (e) {
       console.error('IMG.LY preload failed:', e);
       state.imglyRemover = null;
+      if ($.badgeModel) $.badgeModel.textContent = 'Model: Load Failed';
+      if ($.aiStatus) $.aiStatus.textContent = 'AI unavailable: ' + e.message;
     }
   }
 
@@ -494,7 +550,7 @@
   async function preloadModel() {
     var t0 = performance.now();
     if ($.badgeModel) $.badgeModel.textContent = 'Model: Loading…';
-    if ($.aiStatus) $.aiStatus.textContent = 'Model preparing…';
+    if ($.aiStatus) $.aiStatus.textContent = 'Loading AI model…';
 
     await preloadPrimaryImgly();
     await preloadFallbackMediaPipe();
@@ -504,14 +560,20 @@
 
     state.modelReady = !!state.imglyRemover;
     if ($.dbgLoad) $.dbgLoad.textContent = String(state.timings.load);
-    if ($.badgeModel) $.badgeModel.textContent = state.modelReady ? 'Model: Ready' : 'Model: Not Ready';
-    if ($.aiStatus) $.aiStatus.textContent = state.modelReady ? 'Model ready' : 'Model not ready (check console)';
+    if ($.badgeModel) $.badgeModel.textContent = state.modelReady ? 'Model: Ready' : 'Model: Failed';
+    if ($.aiStatus) $.aiStatus.textContent = state.modelReady ? 'AI model ready' : 'AI model failed to load';
     if ($.btnAI) $.btnAI.disabled = !state.modelReady;
   }
 
+  // ---------- Initialization ----------
+
   function init(){
-    try { bindEvents(); } catch(e){ console.error('Bind events failed:', e); }
-    preloadModel().catch(function(e){ console.error('Preload failed:', e); });
+    try {
+      bindEvents();
+    } catch(e) {
+      console.error('Event binding failed:', e);
+    }
+    preloadModel().catch(function(e){ console.error('Model preload failed:', e); });
   }
 
   init();
