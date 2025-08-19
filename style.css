@@ -86,6 +86,6 @@ background-position:0 0, 0 10px, 10px -10px, -10px 0px;
 }
 .divider{width:12px;background:#0b1020;border-left:1px solid var(--border);border-right:1px solid var(--border)}
 .app-footer{border-top:1px solid var(--border);margin-top:16px}
-.footer-inner{max-width:1200px;margin:0 auto;padding:10px 20px;color:#muted;font-size:12px}
+.footer-inner{max-width:1200px;margin:0 auto;padding:10px 20px;color:#9ca3af;font-size:12px}
 .help{color:var(--muted);margin-top:8px}
 .debug{display:grid;gap:4px;color:#cbd5e1;font-size:12px}
